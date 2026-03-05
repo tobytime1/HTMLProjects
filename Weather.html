@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>天气查询应用 | Weather App | 天気アプリ</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-color: #f5f7fa;
+            --text-color: #2d3748;
+            --card-bg: #ffffff;
+            --primary-color: #4299e1;
+            --secondary-color: #718096;
+            --accent-color: #38b2ac;
+            --shadow: 0 8px 24px rgba(149, 157, 165, 0.1);
+            --transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 20px;
+        }
+        [data-theme="dark"] {
+            --bg-color: #1a202c;
+            --text-color: #f7fafc;
+            --card-bg: #2d3748;
+            --primary-color: #63b3ed;
+            --secondary-color: #a0aec0;
+            --accent-color: #48bb78;
+            --shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            transition: var(--transition);
+        }
+        body {
+            font-family: 'Inter', 'Segoe UI', 'Microsoft YaHei', 'メイリオ', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            min-height: 100vh;
+            padding: 1.5rem;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 850px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+        .top-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        .theme-toggle, .lang-select {
+            background: var(--card-bg);
+            border: 1px solid rgba(0,0,0,0.05);
+            border-radius: var(--radius-sm);
+            padding: 0.75rem 1rem;
+            color: var(--text-color);
+            cursor: pointer;
+            font-size: 1rem;
+            box-shadow: var(--shadow);
+        }
+        .theme-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            border: none;
+        }
+        .lang-select {
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23718096' viewBox='0 0 16 16'%3E%3Cpath d='M8 11.5l-6-6 1.5-1.5L8 8.5l4.5-4.5L14 5.5l-6 6z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.75rem center;
+            padding-right: 2.5rem;
+        }
+        .search-box {
+            display: flex;
+            gap: 1rem;
+            width: 100%;
+            position: relative;
+        }
+        #location {
+            flex: 1;
+            padding: 1.25rem 1.5rem;
+            border: none;
+            border-radius: var(--radius-md);
+            font-size: 1rem;
+            background-color: var(--card-bg);
+            color: var(--text-color);
+            box-shadow: var(--shadow);
+            outline: none;
+        }
+        #location:focus {
+            border: 2px solid var(--primary-color);
+        }
+        .search-btn {
+            padding: 1.25rem 2rem;
+            background-color: var(--primary-color);
+            border: none;
+            border-radius: var(--radius-md);
+            color: white;
+            cursor: pointer;
+            font-weight: 600;
+            box-shadow: var(--shadow);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .search-btn:hover {
+            background-color: #3182ce;
+            transform: translateY(-2px);
+        }
+        .search-btn:active {
+            transform: translateY(0);
+        }
+        .weather-card {
+            background-color: var(--card-bg);
+            border-radius: var(--radius-lg);
+            padding: 2.5rem;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+        .weather-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1.5rem;
+        }
+        .location-info h2 {
+            font-size: 1.75rem;
+            margin-bottom: 0.5rem;
+            color: var(--primary-color);
+        }
+        .location-info p {
+            color: var(--secondary-color);
+            font-size: 0.95rem;
+        }
+        .temperature {
+            font-size: 4.5rem;
+            font-weight: 700;
+            display: flex;
+            align-items: baseline;
+            gap: 0.5rem;
+        }
+        .temperature span {
+            font-size: 2rem;
+            font-weight: 400;
+        }
+        .weather-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 2rem;
+            margin-top: 1rem;
+        }
+        .detail-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            background-color: rgba(66, 153, 225, 0.05);
+            border-radius: var(--radius-md);
+        }
+        .detail-item i {
+            font-size: 1.5rem;
+            color: var(--accent-color);
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(56, 178, 172, 0.1);
+            border-radius: 50%;
+        }
+        .detail-info p {
+            color: var(--secondary-color);
+            font-size: 0.9rem;
+            margin-bottom: 0.25rem;
+        }
+        .detail-info h3 {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+        .loading, .error {
+            text-align: center;
+            padding: 2rem;
+            border-radius: var(--radius-lg);
+            background-color: var(--card-bg);
+            box-shadow: var(--shadow);
+        }
+        .loading {
+            font-size: 1.2rem;
+            color: var(--primary-color);
+        }
+        .error {
+            color: #e53e3e;
+            font-size: 1.1rem;
+        }
+        @media (max-width: 768px) {
+            .weather-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .temperature {
+                font-size: 3.5rem;
+            }
+            
+            .weather-details {
+                grid-template-columns: 1fr;
+            }
+            
+            .search-box {
+                flex-direction: column;
+            }
+            
+            .search-btn {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body data-theme="light">
+    <div class="container">
+        <div class="top-controls">
+            <h1 id="app-title">天气查询应用</h1>
+            <div class="controls-right">
+                <button class="theme-toggle" onclick="toggleTheme()">
+                    <i class="fas fa-moon"></i>
+                    <span id="theme-text">深色模式</span>
+                </button>
+                <select class="lang-select" id="language-select" onchange="changeLanguage()">
+                    <option value="zh">中文</option>
+                    <option value="en">English</option>
+                    <option value="jp">日本語</option>
+                </select>
+            </div>
+        </div>
+        <div class="search-box">
+            <input type="text" id="location" placeholder="输入城市名称...">
+            <button class="search-btn" onclick="getWeather()">
+                <i class="fas fa-search"></i>
+                <span id="search-btn-text">搜索</span>
+            </button>
+        </div>
+        <div id="weather-info"></div>
+    </div>
+    <script>
+        const languageConfig = {
+            zh: {
+                appTitle: "天气查询应用",
+                placeholder: "输入城市名称...",
+                searchBtn: "搜索",
+                themeText: "深色模式",
+                themeTextDark: "浅色模式",
+                loading: "加载中...",
+                error: "找不到该城市",
+                feelTemp: "体感温度",
+                humidity: "湿度",
+                windSpeed: "风速",
+                dateFormat: { year: 'numeric', month: 'long', day: 'numeric' }
+            },
+            en: {
+                appTitle: "Weather App",
+                placeholder: "Enter city name...",
+                searchBtn: "Search",
+                themeText: "Dark Mode",
+                themeTextDark: "Light Mode",
+                loading: "Loading...",
+                error: "City not found",
+                feelTemp: "Feels Like",
+                humidity: "Humidity",
+                windSpeed: "Wind Speed",
+                dateFormat: { year: 'numeric', month: 'long', day: 'numeric' }
+            },
+            jp: {
+                appTitle: "天気アプリ",
+                placeholder: "都市名を入力してください...",
+                searchBtn: "検索",
+                themeText: "ダークモード",
+                themeTextDark: "ライトモード",
+                loading: "読み込み中...",
+                error: "都市が見つかりません",
+                feelTemp: "体感温度",
+                humidity: "湿度",
+                windSpeed: "風速",
+                dateFormat: { year: 'numeric', month: 'long', day: 'numeric' }
+            }
+        };
+        let currentLang = localStorage.getItem('weather-lang') || 'zh';
+        function initLanguage() {
+            applyLanguage(currentLang);
+            document.getElementById('language-select').value = currentLang;
+        }
+        function applyLanguage(lang) {
+            const config = languageConfig[lang];
+            document.getElementById('app-title').textContent = config.appTitle;
+            document.getElementById('location').placeholder = config.placeholder;
+            document.getElementById('search-btn-text').textContent = config.searchBtn;
+            
+            const theme = document.body.getAttribute('data-theme');
+            document.getElementById('theme-text').textContent = theme === 'dark' ? config.themeTextDark : config.themeText;
+        }
+        function changeLanguage() {
+            currentLang = document.getElementById('language-select').value;
+            localStorage.setItem('weather-lang', currentLang);
+            applyLanguage(currentLang);
+            
+            const weatherInfo = document.getElementById('weather-info');
+            if (weatherInfo.querySelector('.weather-card')) {
+                const location = document.getElementById('location').value;
+                if (location) getWeather();
+            }
+        }
+        function toggleTheme() {
+            const currentTheme = document.body.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            
+            document.body.setAttribute('data-theme', newTheme);
+            localStorage.setItem('weather-theme', newTheme);
+            
+            const themeIcon = document.querySelector('.theme-toggle i');
+            const themeText = document.getElementById('theme-text');
+            const config = languageConfig[currentLang];
+            
+            themeIcon.className = newTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+            themeText.textContent = newTheme === 'dark' ? config.themeTextDark : config.themeText;
+        }
+        function initTheme() {
+            const savedTheme = localStorage.getItem('weather-theme') || 'light';
+            document.body.setAttribute('data-theme', savedTheme);
+            
+            const themeIcon = document.querySelector('.theme-toggle i');
+            themeIcon.className = savedTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+        }
+        async function getWeather() {
+            const location = document.getElementById('location').value.trim();
+            const config = languageConfig[currentLang];
+            
+            if (!location) {
+                alert(config.placeholder);
+                return;
+            }
+            const weatherInfo = document.getElementById('weather-info');
+            weatherInfo.innerHTML = `<div class="loading">${config.loading}</div>`;
+            try {
+                const geoResponse = await fetch(
+                    `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1&language=${currentLang}`
+                );
+                const geoData = await geoResponse.json();
+                if (!geoData.results || geoData.results.length === 0) {
+                    throw new Error(config.error);
+                }
+                const { latitude, longitude, name, country } = geoData.results[0];
+                const weatherResponse = await fetch(
+                    `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true&hourly=temperature_2m,relativehumidity_2m,windspeed_10m`
+                );
+                const weatherData = await weatherResponse.json();
+                const date = new Date().toLocaleDateString(currentLang, config.dateFormat);
+                weatherInfo.innerHTML = `
+                    <div class="weather-card">
+                        <div class="weather-header">
+                            <div class="location-info">
+                                <h2>${name}, ${country}</h2>
+                                <p>${date}</p>
+                            </div>
+                            <div class="temperature">
+                                ${weatherData.current_weather.temperature}<span>°C</span>
+                            </div>
+                        </div>
+                        <div class="weather-details">
+                            <div class="detail-item">
+                                <i class="fas fa-temperature-low"></i>
+                                <div class="detail-info">
+                                    <p>${config.feelTemp}</p>
+                                    <h3>${weatherData.hourly.temperature_2m[0]}°C</h3>
+                                </div>
+                            </div>
+                            <div class="detail-item">
+                                <i class="fas fa-tint"></i>
+                                <div class="detail-info">
+                                    <p>${config.humidity}</p>
+                                    <h3>${weatherData.hourly.relativehumidity_2m[0]}%</h3>
+                                </div>
+                            </div>
+                            <div class="detail-item">
+                                <i class="fas fa-wind"></i>
+                                <div class="detail-info">
+                                    <p>${config.windSpeed}</p>
+                                    <h3>${weatherData.hourly.windspeed_10m[0]} km/h</h3>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                weatherInfo.innerHTML = `<div class="error">${error.message}</div>`;
+            }
+        }
+        document.getElementById('location').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') getWeather();
+        });
+        window.onload = function() {
+            initTheme();
+            initLanguage();
+        };
+    </script>
+</body>
+</html>
