@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTML Snippet Notes - 代码便签预览器</title>
+    <style>
+        :root {
+            --bg-color: #f4f7f6;
+            --card-bg: #ffffff;
+            --text-color: #333;
+            --primary-color: #4a90e2;
+            --accent-color: #ffcc00;
+            --shadow: 0 4px 15px rgba(0,0,0,0.1);
+            --glass: rgba(255, 255, 255, 0.8);
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #1a1a1a;
+            --card-bg: #2d2d2d;
+            --text-color: #eee;
+            --glass: rgba(45, 45, 45, 0.8);
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            color: var(--text-color);
+            transition: all 0.3s ease;
+            min-height: 100vh;
+        }
+
+        /* 导航栏 */
+        nav {
+            backdrop-filter: blur(10px);
+            background: var(--glass);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: var(--shadow);
+        }
+
+        .logo { font-weight: bold; font-size: 1.5rem; color: var(--primary-color); }
+
+        .controls { display: flex; gap: 10px; align-items: center; }
+
+        button, .file-label {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            background: var(--primary-color);
+            color: white;
+            transition: 0.2s;
+            font-size: 14px;
+        }
+
+        button:hover { opacity: 0.8; }
+
+        /* 输入区 */
+        .input-section {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 20px;
+            background: var(--glass);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            box-shadow: var(--shadow);
+        }
+
+        textarea {
+            width: 100%;
+            height: 150px;
+            border-radius: 10px;
+            border: 1px solid #ddd;
+            padding: 10px;
+            box-sizing: border-box;
+            font-family: monospace;
+            margin-bottom: 10px;
+            resize: vertical;
+        }
+
+        .note-options {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .color-picker { display: flex; gap: 5px; }
+        .color-dot {
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid transparent;
+        }
+        .color-dot.active { border-color: var(--text-color); }
+
+        /* 便签列表 */
+        .notes-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+            padding: 2rem;
+        }
+
+        .note-card {
+            height: 200px;
+            padding: 20px;
+            border-radius: 0 0 30px 0;
+            position: relative;
+            box-shadow: 5px 5px 15px rgba(0,0,0,0.1);
+            cursor: pointer;
+            transition: transform 0.2s;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            overflow: hidden;
+        }
+
+        .note-card:hover { transform: translateY(-5px); }
+
+        .note-card .actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            opacity: 0;
+            transition: 0.3s;
+        }
+
+        .note-card:hover .actions { opacity: 1; }
+
+        .action-btn {
+            background: rgba(255,255,255,0.5);
+            color: #333;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+        }
+
+        /* 预览模态框 */
+        #preview-modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: white;
+            z-index: 1000;
+        }
+
+        #preview-frame { width: 100%; height: 100%; border: none; }
+
+        .close-preview {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #ff4757;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 24px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            z-index: 1001;
+            cursor: pointer;
+        }
+
+        /* 响应式 */
+        @media (max-width: 600px) {
+            .input-section { margin: 1rem; }
+            .notes-grid { padding: 1rem; }
+        }
+
+        /* 默认便签颜色 */
+        .color-1 { background: #fff9c4; color: #5d4037; } /* 黄 */
+        .color-2 { background: #ffccbc; color: #5d4037; } /* 橙 */
+        .color-3 { background: #c8e6c9; color: #1b5e20; } /* 绿 */
+        .color-4 { background: #bbdefb; color: #0d47a1; } /* 蓝 */
+        .color-5 { background: #f8bbd0; color: #880e4f; } /* 粉 */
+    </style>
+</head>
+<body>
+
+<nav>
+    <div class="logo">HTML Snippets</div>
+    <div class="controls">
+        <select id="lang-select" onchange="changeLang()">
+            <option value="zh">中文</option>
+            <option value="en">English</option>
+            <option value="jp">日本語</option>
+        </select>
+        <button onclick="toggleTheme()" id="theme-btn">🌙</button>
+        <label class="file-label">
+            🖼️ <input type="file" id="bg-input" hidden accept="image/*">
+        </label>
+    </div>
+</nav>
+
+<div class="input-section">
+    <textarea id="code-input" placeholder="在此粘贴 HTML 代码..."></textarea>
+    <div class="note-options">
+        <div class="color-picker" id="color-picker">
+            <div class="color-dot color-1 active" data-color="color-1"></div>
+            <div class="color-dot color-2" data-color="color-2"></div>
+            <div class="color-dot color-3" data-color="color-3"></div>
+            <div class="color-dot color-4" data-color="color-4"></div>
+            <div class="color-dot color-5" data-color="color-5"></div>
+        </div>
+        <button onclick="addNote()" id="add-btn">添加便签</button>
+    </div>
+</div>
+
+<div class="notes-grid" id="notes-grid">
+    <!-- 便签将显示在这里 -->
+</div>
+
+<!-- 预览模态框 -->
+<div id="preview-modal">
+    <iframe id="preview-frame"></iframe>
+    <div class="close-preview" onclick="closePreview()" title="关闭/全屏退出">✕</div>
+</div>
+
+<script>
+    // 语言包
+    const i18n = {
+        zh: {
+            placeholder: "在此粘贴 HTML 代码...",
+            addBtn: "添加便签",
+            delete: "删除",
+            edit: "修改",
+            theme: "模式切换"
+        },
+        en: {
+            placeholder: "Paste HTML code here...",
+            addBtn: "Add Note",
+            delete: "Del",
+            edit: "Edit",
+            theme: "Theme"
+        },
+        jp: {
+            placeholder: "ここにHTMLコードを貼り付けてください...",
+            addBtn: "メモを追加",
+            delete: "削除",
+            edit: "編集",
+            theme: "テーマ"
+        }
+    };
+
+    let notes = JSON.parse(localStorage.getItem('html_notes') || '[]');
+    let selectedColor = 'color-1';
+    let editingId = null;
+
+    // 初始化
+    function init() {
+        renderNotes();
+        changeLang();
+    }
+
+    // 语言切换
+    function changeLang() {
+        const lang = document.getElementById('lang-select').value;
+        document.getElementById('code-input').placeholder = i18n[lang].placeholder;
+        document.getElementById('add-btn').innerText = editingId ? i18n[lang].edit : i18n[lang].addBtn;
+        renderNotes();
+    }
+
+    // 主题切换
+    function toggleTheme() {
+        const body = document.body;
+        const currentTheme = body.getAttribute('data-theme');
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        body.setAttribute('data-theme', newTheme);
+        document.getElementById('theme-btn').innerText = newTheme === 'dark' ? '☀️' : '🌙';
+    }
+
+    // 壁纸上传
+    document.getElementById('bg-input').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                document.body.style.backgroundImage = `url('${event.target.result}')`;
+            };
+            reader.readAsDataURL(file);
+        }
+    });
+
+    // 颜色选择
+    document.getElementById('color-picker').addEventListener('click', (e) => {
+        if (e.target.classList.contains('color-dot')) {
+            document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('active'));
+            e.target.classList.add('active');
+            selectedColor = e.target.dataset.color;
+        }
+    });
+
+    // 添加/更新便签
+    function addNote() {
+        const code = document.getElementById('code-input').value;
+        if (!code.trim()) return alert("Please enter some code!");
+
+        if (editingId) {
+            notes = notes.map(n => n.id === editingId ? { ...n, code, color: selectedColor } : n);
+            editingId = null;
+        } else {
+            const newNote = {
+                id: Date.now(),
+                code: code,
+                color: selectedColor,
+                date: new Date().toLocaleString()
+            };
+            notes.push(newNote);
+        }
+
+        saveAndRender();
+        document.getElementById('code-input').value = '';
+        changeLang();
+    }
+
+    // 删除
+    function deleteNote(id, e) {
+        e.stopPropagation();
+        notes = notes.filter(n => n.id !== id);
+        saveAndRender();
+    }
+
+    // 修改
+    function editNote(id, e) {
+        e.stopPropagation();
+        const note = notes.find(n => n.id === id);
+        document.getElementById('code-input').value = note.code;
+        selectedColor = note.color;
+        editingId = id;
+        
+        document.querySelectorAll('.color-dot').forEach(d => {
+            d.classList.toggle('active', d.dataset.color === selectedColor);
+        });
+        
+        const lang = document.getElementById('lang-select').value;
+        document.getElementById('add-btn').innerText = i18n[lang].edit;
+        window.scrollTo(0, 0);
+    }
+
+    // 预览
+    function previewNote(id) {
+        const note = notes.find(n => n.id === id);
+        const modal = document.getElementById('preview-modal');
+        const frame = document.getElementById('preview-frame');
+        
+        modal.style.display = 'block';
+        const doc = frame.contentWindow.document;
+        doc.open();
+        doc.write(note.code);
+        doc.close();
+
+        // 尝试进入全屏
+        if (modal.requestFullscreen) {
+            modal.requestFullscreen();
+        }
+    }
+
+    function closePreview() {
+        document.getElementById('preview-modal').style.display = 'none';
+        if (document.fullscreenElement) {
+            document.exitFullscreen();
+        }
+    }
+
+    // 持久化与渲染
+    function saveAndRender() {
+        localStorage.setItem('html_notes', JSON.stringify(notes));
+        renderNotes();
+    }
+
+    function renderNotes() {
+        const grid = document.getElementById('notes-grid');
+        const lang = document.getElementById('lang-select').value;
+        grid.innerHTML = '';
+
+        notes.forEach(note => {
+            const card = document.createElement('div');
+            card.className = `note-card ${note.color}`;
+            card.onclick = () => previewNote(note.id);
+            
+            // 截取代码片段显示
+            const previewText = note.code.replace(/<[^>]*>/g, '').substring(0, 60) + '...';
+
+            card.innerHTML = `
+                <div style="font-size: 0.85rem; overflow: hidden;">
+                    <code>${previewText || 'HTML Code'}</code>
+                </div>
+                <div style="font-size: 0.7rem; opacity: 0.7;">${note.date}</div>
+                <div class="actions">
+                    <div class="action-btn" onclick="editNote(${note.id}, event)">✏️</div>
+                    <div class="action-btn" onclick="deleteNote(${note.id}, event)">🗑️</div>
+                </div>
+            `;
+            grid.appendChild(card);
+        });
+    }
+
+    init();
+</script>
+
+</body>
+</html>
