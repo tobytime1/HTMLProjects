@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultimate Snake Pro - Gemini Edition</title>
+    <style>
+        :root {
+            --primary: #00f2fe;
+            --secondary: #4facfe;
+            --bg-dark: #0f172a;
+            --glass: rgba(255, 255, 255, 0.1);
+            --text: #f8fafc;
+        }
+
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text);
+            overflow: hidden;
+            display: flex; justify-content: center; align-items: center;
+        }
+
+        /* 背景装饰 */
+        #bg-canvas {
+            position: fixed; top: 0; left: 0; z-index: -1;
+            filter: blur(50px); opacity: 0.5;
+        }
+
+        /* 统一屏幕样式 */
+        .screen {
+            position: absolute;
+            width: 100%; height: 100%;
+            display: flex; flex-direction: column;
+            justify-content: center; align-items: center;
+            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
+            background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
+        }
+
+        .hidden { display: none !important; opacity: 0; }
+
+        /* 玻璃面板 */
+        .glass-panel {
+            background: var(--glass);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 20px;
+            padding: 2rem;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+            text-align: center;
+        }
+
+        /* 按钮样式 */
+        button {
+            background: linear-gradient(135deg, var(--secondary), var(--primary));
+            border: none; padding: 12px 24px;
+            color: white; border-radius: 10px;
+            font-weight: bold; cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin: 10px; font-size: 1rem;
+        }
+        button:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px var(--primary); }
+        button:active { transform: scale(0.95); }
+
+        /* 游戏区域 */
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+            overflow: auto; /* 允许超大地图滚动 */
+            max-width: 90vw; max-height: 80vh;
+            border: 4px solid #334155;
+            background: #000;
+        }
+
+        canvas { display: block; image-rendering: pixelated; }
+
+        /* HUD */
+        .hud {
+            position: absolute; top: 20px; width: 80%;
+            display: flex; justify-content: space-between;
+            pointer-events: none; z-index: 10;
+        }
+        .stat-box { background: var(--glass); padding: 10px 20px; border-radius: 10px; }
+
+        /* 设置界面 */
+        .settings-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+            text-align: left; margin: 20px 0;
+        }
+        input[type="range"] { width: 100%; cursor: pointer; }
+
+        /* 地图编辑器专用 */
+        #editor-ui { position: absolute; bottom: 20px; display: flex; gap: 10px; }
+        .cell-info { font-size: 0.8rem; color: #94a3b8; }
+
+        /* 鸣谢滚动 */
+        @keyframes scrollUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(-100%); }
+        }
+        #credits-content {
+            animation: scrollUp 15s linear infinite;
+            text-align: center;
+        }
+        #credits-screen h1 { color: gold; font-size: 3rem; }
+    </style>
+</head>
+<body>
+
+    <canvas id="bg-canvas"></canvas>
+
+    <!-- 初始屏幕 -->
+    <div id="start-screen" class="screen">
+        <div class="glass-panel">
+            <h1 id="title">ULTIMATE SNAKE</h1>
+            <div id="lang-selector">
+                <button onclick="setLanguage('zh')">中文</button>
+                <button onclick="setLanguage('en')">EN</button>
+                <button onclick="setLanguage('jp')">日本語</button>
+            </div>
+            <div style="margin-top: 2rem;">
+                <button onclick="showScreen('game')" id="btn-start" style="font-size: 1.5rem;">开始游戏</button><br>
+                <button onclick="showScreen('editor')" id="btn-editor">地图编辑器</button>
+                <button onclick="showScreen('settings')" id="btn-settings">游戏设置</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 设置屏幕 -->
+    <div id="settings-screen" class="screen hidden">
+        <div class="glass-panel" style="width: 400px;">
+            <h2 id="set-title">设置</h2>
+            <div class="settings-grid">
+                <label id="set-speed">速度 (10%-300%):</label>
+                <input type="range" id="speed-range" min="10" max="300" value="100">
+                
+                <label id="set-free">自由模式 (穿墙):</label>
+                <input type="checkbox" id="free-mode">
+
+                <label id="set-food">食物频率:</label>
+                <input type="range" id="food-freq" min="1" max="10" value="3">
+
+                <label id="set-item">道具频率:</label>
+                <input type="range" id="item-freq" min="1" max="10" value="2">
+                
+                <label id="set-bg">背景颜色:</label>
+                <input type="color" id="bg-color" value="#000000">
+            </div>
+            <button onclick="resetSettings()" id="btn-reset">重置</button>
+            <button onclick="showScreen('start')" id="btn-back">返回</button>
+        </div>
+    </div>
+
+    <!-- 游戏屏幕 -->
+    <div id="game-screen" class="screen hidden">
+        <div class="hud">
+            <div class="stat-box"><span id="hud-score">分数: 0</span></div>
+            <div class="stat-box"><span id="hud-status">生存中</span></div>
+        </div>
+        <div id="game-container">
+            <canvas id="game-canvas"></canvas>
+        </div>
+        <div style="margin-top: 20px;">
+            <button onclick="exitGame()" id="btn-quit">退出</button>
+        </div>
+    </div>
+
+    <!-- 编辑器屏幕 -->
+    <div id="editor-screen" class="screen hidden">
+        <div class="glass-panel">
+            <h2 id="edit-title">地图编辑器</h2>
+            <p id="edit-tip">点击画布绘制/擦除墙壁 (左键画, 右键擦)</p>
+            <div style="margin-bottom:10px;">
+                W: <input type="number" id="edit-w" value="30" style="width:40px"> 
+                H: <input type="number" id="edit-h" value="20" style="width:40px">
+                <button onclick="resizeEditor()">应用大小</button>
+            </div>
+            <div id="game-container" style="max-height: 50vh;">
+                <canvas id="editor-canvas"></canvas>
+            </div>
+            <div id="editor-ui">
+                <button onclick="exportMap()">导出/保存地图</button>
+                <button onclick="importMap()">导入地图</button>
+                <button onclick="showScreen('start')">返回</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 鸣谢屏幕 -->
+    <div id="credits-screen" class="screen hidden" style="background: black;">
+        <div id="credits-content">
+            <h1 id="congrats">恭喜达成 10,000 分!</h1>
+            <p style="font-size: 2rem;">制作名单</p>
+            <p style="font-size: 3rem; color: var(--primary);">GEMINI AI</p>
+            <p>感谢游玩</p>
+            <p>特别感谢: 您这位伟大的玩家</p>
+            <p>核心引擎: HTML5 Canvas + JavaScript</p>
+            <p>视觉设计: Gemini Modern UI</p>
+        </div>
+        <button onclick="continueGame()" style="position: absolute; bottom: 20%; z-index: 100;" id="btn-continue">继续挑战</button>
+    </div>
+
+<script>
+/** 
+ * 1. 核心配置与翻译
+ */
+const I18N = {
+    zh: {
+        title: "极简贪吃蛇 PRO", start: "开始游戏", editor: "地图编辑器", settings: "游戏设置",
+        set_title: "全局设置", set_speed: "游戏速度", set_free: "自由模式", set_food: "食物频率",
+        set_item: "道具频率", set_bg: "背景色", reset: "重置", back: "返回",
+        score: "分数: ", status: "状态: 生存中", quit: "退出", edit_title: "地图编辑器",
+        edit_tip: "左键点击或拖动绘制墙壁，右键擦除", congrats: "登峰造极!", continue: "继续游戏",
+        msg_import: "粘贴地图JSON数据:", msg_export: "这是你的地图数据，请复制保存:"
+    },
+    en: {
+        title: "ULTIMATE SNAKE PRO", start: "Play Now", editor: "Map Editor", settings: "Settings",
+        set_title: "Game Settings", set_speed: "Speed", set_free: "Free Mode", set_food: "Food Freq",
+        set_item: "Item Freq", set_bg: "Background", reset: "Reset", back: "Back",
+        score: "Score: ", status: "Status: Alive", quit: "Quit", edit_title: "Map Editor",
+        edit_tip: "Left-click to draw walls, Right-click to erase", congrats: "UNSTOPPABLE!", continue: "Keep Going",
+        msg_import: "Paste Map JSON data:", msg_export: "Copy this map data:"
+    },
+    jp: {
+        title: "究極のスネーク PRO", start: "スタート", editor: "エディター", settings: "設定",
+        set_title: "ゲーム設定", set_speed: "スピード", set_free: "フリーモード", set_food: "食べ物頻度",
+        set_item: "アイテム頻度", set_bg: "背景色", reset: "リセット", back: "戻る",
+        score: "スコア: ", status: "状態: プレイ中", quit: "終了", edit_title: "マップエディター",
+        edit_tip: "左クリックで壁を作成、右クリックで消去", congrats: "おめでとう!", continue: "続ける",
+        msg_import: "マップJSONを貼り付け:", msg_export: "マップデータをコピーしてください:"
+    }
+};
+
+let currentLang = 'zh';
+
+/** 
+ * 2. 游戏核心变量
+ */
+let canvas, ctx, editorCanvas, eCtx;
+let gameLoop;
+let lastTime = 0;
+let score = 0;
+let cellSize = 25;
+let gridW = 30;
+let gridH = 20;
+
+// 蛇的状态
+let snake = [];
+let direction = { x: 1, y: 0 };
+let nextDirection = { x: 1, y: 0 };
+let walls = []; // 存储墙壁坐标 "x,y"
+let foods = []; // {x, y, type}
+let activeEffects = {}; // 存储限时道具状态
+let isGameOver = false;
+let reachedGoal = false;
+
+// 道具定义
+const ITEM_TYPES = [
+    { id: 'grow', color: '#ff4757', label: '🍎', weight: 10, effect: 'normal' },
+    { id: 'speed', color: '#eccc68', label: '⚡', weight: 2, effect: 'fast' },
+    { id: 'slow', color: '#70a1ff', label: '❄️', weight: 2, effect: 'slow' },
+    { id: 'double', color: '#ffa502', label: '2x', weight: 2, effect: 'score' },
+    { id: 'shrink', color: '#2ed573', label: '✂️', weight: 1, effect: 'shrink' },
+    { id: 'ghost', color: '#a29bfe', label: '👻', weight: 1, effect: 'ghost' },
+    { id: 'shield', color: '#1e90ff', label: '🛡️', weight: 1, effect: 'shield' },
+    { id: 'bonus', color: '#ff7f50', label: '💰', weight: 1, effect: 'bonus' },
+    { id: 'portal', color: '#fff', label: '🌀', weight: 0, effect: 'win' } // 终点
+];
+
+/** 
+ * 3. 核心初始化
+ */
+window.onload = () => {
+    canvas = document.getElementById('game-canvas');
+    ctx = canvas.getContext('2d');
+    editorCanvas = document.getElementById('editor-canvas');
+    eCtx = editorCanvas.getContext('2d');
+    
+    setLanguage('zh');
+    initBackground();
+    setupInputs();
+    resetSettings();
+};
+
+function setLanguage(lang) {
+    currentLang = lang;
+    const t = I18N[lang];
+    document.getElementById('title').innerText = t.title;
+    document.getElementById('btn-start').innerText = t.start;
+    document.getElementById('btn-editor').innerText = t.editor;
+    document.getElementById('btn-settings').innerText = t.settings;
+    document.getElementById('set-title').innerText = t.set_title;
+    document.getElementById('set-speed').innerText = t.set_speed;
+    document.getElementById('set-free').innerText = t.set_free;
+    document.getElementById('set-food').innerText = t.set_food;
+    document.getElementById('set-item').innerText = t.set_item;
+    document.getElementById('set-bg').innerText = t.set_bg;
+    document.getElementById('btn-reset').innerText = t.reset;
+    document.getElementById('btn-back').innerText = t.back;
+    document.getElementById('btn-quit').innerText = t.quit;
+    document.getElementById('edit-title').innerText = t.edit_title;
+    document.getElementById('edit-tip').innerText = t.edit_tip;
+    document.getElementById('congrats').innerText = t.congrats;
+    document.getElementById('btn-continue').innerText = t.continue;
+    updateHUD();
+}
+
+function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+    document.getElementById(id + '-screen').classList.remove('hidden');
+    if (id === 'game') startGame();
+    if (id === 'editor') initEditor();
+}
+
+/** 
+ * 4. 游戏逻辑
+ */
+function startGame() {
+    isGameOver = false;
+    reachedGoal = false;
+    score = 0;
+    direction = { x: 1, y: 0 };
+    nextDirection = { x: 1, y: 0 };
+    snake = [{ x: 5, y: 5 }, { x: 4, y: 5 }, { x: 3, y: 5 }];
+    foods = [];
+    activeEffects = {};
+    
+    // 初始化画布
+    canvas.width = gridW * cellSize;
+    canvas.height = gridH * cellSize;
+    
+    // 初始食物
+    spawnFood(5);
+    
+    if (gameLoop) cancelAnimationFrame(gameLoop);
+    lastTime = 0;
+    gameLoop = requestAnimationFrame(loop);
+}
+
+function loop(timestamp) {
+    if (isGameOver) return;
+
+    let speedVal = document.getElementById('speed-range').value;
+    let baseInterval = 1000 / ( (speedVal / 100) * 10 );
+    
+    // 道具影响速度
+    if (activeEffects.fast) baseInterval *= 0.6;
+    if (activeEffects.slow) baseInterval *= 1.6;
+
+    if (timestamp - lastTime > baseInterval) {
+        update();
+        draw();
+        lastTime = timestamp;
+    }
+    gameLoop = requestAnimationFrame(loop);
+}
+
+function update() {
+    direction = nextDirection;
+    const head = { x: snake[0].x + direction.x, y: snake[0].y + direction.y };
+
+    // 自由模式处理
+    const isFree = document.getElementById('free-mode').checked;
+    if (isFree) {
+        if (head.x < 0) head.x = gridW - 1;
+        if (head.x >= gridW) head.x = 0;
+        if (head.y < 0) head.y = gridH - 1;
+        if (head.y >= gridH) head.y = 0;
+    }
+
+    // 碰撞检查
+    if (!activeEffects.ghost) {
+        // 墙壁碰撞
+        if (walls.includes(`${head.x},${head.y}`)) return gameOver();
+        // 边界碰撞
+        if (!isFree && (head.x < 0 || head.x >= gridW || head.y < 0 || head.y >= gridH)) return gameOver();
+        // 自身碰撞
+        for (let s of snake) if (s.x === head.x && s.y === head.y) return gameOver();
+    }
+
+    snake.unshift(head);
+
+    // 检查食物
+    let eaten = false;
+    for (let i = 0; i < foods.length; i++) {
+        if (foods[i].x === head.x && foods[i].y === head.y) {
+            applyEffect(foods[i].type);
+            foods.splice(i, 1);
+            eaten = true;
+            break;
+        }
+    }
+
+    if (!eaten) {
+        snake.pop();
+    } else {
+        score += activeEffects.score ? 200 : 100;
+        updateHUD();
+        // 检查终点触发
+        if (score >= 10000 && !reachedGoal) {
+            reachedGoal = true;
+            foods.push({ x: Math.floor(gridW/2), y: Math.floor(gridH/2), type: ITEM_TYPES.find(i => i.id === 'portal') });
+        }
+        // 补充食物
+        if (Math.random() < 0.3) spawnFood(1);
+    }
+
+    // 随机生成更多道具
+    const itemFreq = document.getElementById('item-freq').value / 100;
+    if (Math.random() < itemFreq) spawnFood(1, true);
+
+    // 道具计时器
+    for (let key in activeEffects) {
+        if (activeEffects[key] > 0) activeEffects[key]--;
+        else delete activeEffects[key];
+    }
+}
+
+function applyEffect(type) {
+    switch(type.effect) {
+        case 'fast': activeEffects.fast = 50; break;
+        case 'slow': activeEffects.slow = 50; break;
+        case 'score': activeEffects.score = 100; break;
+        case 'shrink': if(snake.length > 2) snake.pop(); break;
+        case 'ghost': activeEffects.ghost = 50; break;
+        case 'bonus': score += 500; break;
+        case 'win': showScreen('credits'); break;
+    }
+}
+
+function draw() {
+    ctx.fillStyle = document.getElementById('bg-color').value;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // 画网格辅助线
+    ctx.strokeStyle = "rgba(255,255,255,0.05)";
+    for(let i=0; i<=gridW; i++) { ctx.beginPath(); ctx.moveTo(i*cellSize,0); ctx.lineTo(i*cellSize, canvas.height); ctx.stroke(); }
+    for(let i=0; i<=gridH; i++) { ctx.beginPath(); ctx.moveTo(0, i*cellSize); ctx.lineTo(canvas.width, i*cellSize); ctx.stroke(); }
+
+    // 画墙
+    ctx.fillStyle = "#475569";
+    walls.forEach(w => {
+        const [x, y] = w.split(',').map(Number);
+        ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+    });
+
+    // 画食物
+    foods.forEach(f => {
+        ctx.fillStyle = f.type.color;
+        ctx.beginPath();
+        ctx.arc(f.x * cellSize + cellSize/2, f.y * cellSize + cellSize/2, cellSize/2.5, 0, Math.PI*2);
+        ctx.fill();
+        ctx.font = "12px Arial";
+        ctx.fillText(f.type.label, f.x * cellSize + 5, f.y * cellSize + 18);
+    });
+
+    // 画蛇
+    snake.forEach((s, index) => {
+        ctx.fillStyle = index === 0 ? varToHex('--primary') : (activeEffects.ghost ? 'rgba(255,255,255,0.5)' : '#4facfe');
+        if (index === 0 && activeEffects.shield) ctx.strokeStyle = 'white', ctx.lineWidth = 3;
+        
+        ctx.beginPath();
+        const r = cellSize / 3;
+        ctx.roundRect(s.x * cellSize + 2, s.y * cellSize + 2, cellSize - 4, cellSize - 4, 5);
+        ctx.fill();
+        if (index === 0 && activeEffects.shield) ctx.stroke();
+    });
+}
+
+/** 
+ * 5. 辅助功能 (地图编辑器 & 设置)
+ */
+function initEditor() {
+    gridW = parseInt(document.getElementById('edit-w').value);
+    gridH = parseInt(document.getElementById('edit-h').value);
+    editorCanvas.width = gridW * cellSize;
+    editorCanvas.height = gridH * cellSize;
+    drawEditor();
+
+    let isDrawing = false;
+    let mode = 'draw';
+
+    editorCanvas.onmousedown = (e) => {
+        isDrawing = true;
+        mode = e.button === 0 ? 'draw' : 'erase';
+        editCell(e);
+    };
+    editorCanvas.onmousemove = (e) => { if(isDrawing) editCell(e); };
+    window.onmouseup = () => isDrawing = false;
+    editorCanvas.oncontextmenu = (e) => e.preventDefault();
+}
+
+function editCell(e) {
+    const rect = editorCanvas.getBoundingClientRect();
+    const x = Math.floor((e.clientX - rect.left) / cellSize);
+    const y = Math.floor((e.clientY - rect.top) / cellSize);
+    const key = `${x},${y}`;
+    if (mode === 'draw') {
+        if (!walls.includes(key)) walls.push(key);
+    } else {
+        walls = walls.filter(w => w !== key);
+    }
+    drawEditor();
+}
+
+function drawEditor() {
+    eCtx.fillStyle = "#000";
+    eCtx.fillRect(0, 0, editorCanvas.width, editorCanvas.height);
+    eCtx.strokeStyle = "#222";
+    for(let i=0; i<gridW; i++) {
+        for(let j=0; j<gridH; j++) {
+            if (walls.includes(`${i},${j}`)) {
+                eCtx.fillStyle = "#475569";
+                eCtx.fillRect(i*cellSize, j*cellSize, cellSize, cellSize);
+            }
+            eCtx.strokeRect(i*cellSize, j*cellSize, cellSize, cellSize);
+        }
+    }
+}
+
+function spawnFood(count, isItem = false) {
+    for (let i = 0; i < count; i++) {
+        let x = Math.floor(Math.random() * gridW);
+        let y = Math.floor(Math.random() * gridH);
+        if (walls.includes(`${x},${y}`)) continue;
+        
+        let type;
+        if (isItem) {
+            const itemsOnly = ITEM_TYPES.filter(t => t.id !== 'grow' && t.id !== 'portal');
+            type = itemsOnly[Math.floor(Math.random() * itemsOnly.length)];
+        } else {
+            type = ITEM_TYPES[0]; // Normal Apple
+        }
+        foods.push({ x, y, type });
+    }
+}
+
+function setupInputs() {
+    window.addEventListener('keydown', e => {
+        switch(e.key) {
+            case 'ArrowUp': if(direction.y !== 1) nextDirection = {x:0, y:-1}; break;
+            case 'ArrowDown': if(direction.y !== -1) nextDirection = {x:0, y:1}; break;
+            case 'ArrowLeft': if(direction.x !== 1) nextDirection = {x:-1, y:0}; break;
+            case 'ArrowRight': if(direction.x !== -1) nextDirection = {x:1, y:0}; break;
+        }
+    });
+}
+
+function resetSettings() {
+    document.getElementById('speed-range').value = 100;
+    document.getElementById('free-mode').checked = false;
+    document.getElementById('food-freq').value = 3;
+    document.getElementById('item-freq').value = 2;
+    document.getElementById('bg-color').value = "#000000";
+}
+
+function updateHUD() {
+    document.getElementById('hud-score').innerText = I18N[currentLang].score + score;
+}
+
+function gameOver() {
+    isGameOver = true;
+    alert("GAME OVER! Score: " + score);
+    showScreen('start');
+}
+
+function exitGame() {
+    isGameOver = true;
+    showScreen('start');
+}
+
+function continueGame() {
+    showScreen('game');
+    // 继续游戏，目标提高
+    score += 100;
+}
+
+function exportMap() {
+    const data = JSON.stringify({ w: gridW, h: gridH, walls: walls });
+    prompt(I18N[currentLang].msg_export, data);
+}
+
+function importMap() {
+    const data = prompt(I18N[currentLang].msg_import);
+    if (data) {
+        try {
+            const obj = JSON.parse(data);
+            gridW = obj.w; gridH = obj.h; walls = obj.walls;
+            document.getElementById('edit-w').value = gridW;
+            document.getElementById('edit-h').value = gridH;
+            initEditor();
+        } catch(e) { alert("Invalid Data"); }
+    }
+}
+
+function resizeEditor() {
+    walls = [];
+    initEditor();
+}
+
+function varToHex(v) {
+    return getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+}
+
+/** 
+ * 炫酷背景动画
+ */
+function initBackground() {
+    const bg = document.getElementById('bg-canvas');
+    const bctx = bg.getContext('2d');
+    bg.width = window.innerWidth;
+    bg.height = window.innerHeight;
+    
+    let dots = [];
+    for(let i=0; i<30; i++) dots.push({
+        x: Math.random()*bg.width, y: Math.random()*bg.height,
+        vx: (Math.random()-0.5)*2, vy: (Math.random()-0.5)*2,
+        r: Math.random()*100 + 50
+    });
+
+    function drawBg() {
+        bctx.clearRect(0,0,bg.width, bg.height);
+        dots.forEach(d => {
+            d.x += d.vx; d.y += d.vy;
+            if(d.x<0 || d.x>bg.width) d.vx*=-1;
+            if(d.y<0 || d.y>bg.height) d.vy*=-1;
+            bctx.beginPath();
+            bctx.arc(d.x, d.y, d.r, 0, Math.PI*2);
+            bctx.fillStyle = d.vx > 0 ? '#4facfe' : '#00f2fe';
+            bctx.fill();
+        });
+        requestAnimationFrame(drawBg);
+    }
+    drawBg();
+}
+
+</script>
+</body>
+</html>
