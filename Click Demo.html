@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Click</title>
+    <style>
+        :root {
+            --bg: #f0f0f0;
+            --text: #222;
+            --accent: #000;
+        }
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg); color: var(--text);
+            overflow: hidden; user-select: none;
+        }
+        /* 背景文字系统 */
+        #narration-container {
+            position: absolute; width: 100%; height: 100%;
+            padding: 20px; box-sizing: border-box;
+            display: flex; flex-direction: column-reverse;
+            overflow-y: auto; z-index: 1; pointer-events: none;
+            scrollbar-width: thin;
+        }
+        #narration-container::-webkit-scrollbar { width: 5px; }
+        .log-entry {
+            font-size: 2.5rem; font-weight: 800; opacity: 0;
+            transform: translateY(20px); transition: 0.5s;
+            margin-bottom: 10px; color: rgba(0,0,0,0.05);
+            pointer-events: auto;
+        }
+        .log-entry.active { opacity: 1; transform: translateY(0); color: rgba(0,0,0,0.15); }
+        .log-entry:hover { color: rgba(0,0,0,0.4); }
+
+        /* 中心按钮 */
+        #main-btn {
+            position: absolute; left: 50%; top: 50%;
+            transform: translate(-50%, -50%);
+            padding: 40px 80px; font-size: 1.5rem; font-weight: bold;
+            background: #fff; border: 4px solid var(--accent);
+            cursor: pointer; z-index: 10; transition: all 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 10px 10px 0px #000;
+        }
+        #main-btn:active { transform: translate(-48%, -48%); box-shadow: 2px 2px 0px #000; }
+        #main-btn:hover { background: #000; color: #fff; }
+
+        /* UI面板 */
+        .ui-panel { position: absolute; z-index: 100; padding: 20px; }
+        .top-left { top: 0; left: 0; display: flex; gap: 10px; }
+        .top-right { top: 0; right: 0; text-align: right; }
+        button.ui-btn {
+            background: none; border: 2px solid #000; padding: 5px 15px;
+            cursor: pointer; font-weight: bold; transition: 0.2s;
+        }
+        button.ui-btn:hover { background: #000; color: #fff; }
+
+        /* 成就弹窗 */
+        #achievements-modal {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.9);
+            width: 80%; height: 70%; background: #fff; border: 5px solid #000;
+            z-index: 1000; display: none; flex-direction: column; padding: 20px;
+        }
+        #achievements-modal.show { display: flex; animation: pop 0.3s forwards; }
+        .ach-list { overflow-y: auto; flex-grow: 1; border-top: 2px solid #eee; }
+        .ach-item { padding: 10px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; }
+        .ach-item.locked { color: #ccc; filter: blur(1px); }
+        .ach-item.unlocked { color: #000; font-weight: bold; background: #f9f9f9; }
+
+        @keyframes pop { to { transform: translate(-50%, -50%) scale(1); } }
+    </style>
+</head>
+<body>
+
+    <div id="narration-container"></div>
+
+    <div class="ui-panel top-left">
+        <button class="ui-btn" onclick="saveGame()">保存存档</button>
+        <button class="ui-btn" onclick="importTrigger()">导入存档</button>
+        <input type="file" id="fileInput" style="display:none" onchange="loadGame(this)">
+    </div>
+
+    <div class="ui-panel top-right">
+        <div id="completion">进度: 0%</div>
+        <button class="ui-btn" onclick="toggleAchievements()">成就列表</button>
+    </div>
+
+    <button id="main-btn">CLICK ME</button>
+
+    <div id="achievements-modal">
+        <div style="display:flex; justify-content: space-between; align-items: center;">
+            <h2>成就清单</h2>
+            <button class="ui-btn" onclick="toggleAchievements()">关闭</button>
+        </div>
+        <div class="ach-list" id="ach-list"></div>
+    </div>
+
+<script>
+    // --- 数据定义 ---
+    const STATE = {
+        clicks: 0,
+        missClicks: 0,
+        startTime: Date.now(),
+        lastClickTime: 0,
+        hoverStart: 0,
+        isHovering: false,
+        moveDistance: 0,
+        wheelDistance: 0,
+        achievements: {},
+        saveCount: 0,
+        lastSaveTime: 0,
+        lastImportTime: 0,
+        windowResizes: 0,
+        clickStreak: 0,
+        lastStreakTime: 0
+    };
+
+    const PHRASES = [
+        "你刚才动了对吧？我看到了。", "那个按钮...它得罪你了吗？", "点击是一种艺术，而你只是在涂鸦。", 
+        "有趣，你竟然还在坚持。", "我有预感，你会点很久。", "如果你无聊了，可以试试画个圈。", 
+        "为什么要点这里？为什么不点那里？", "你的鼠标指针看起来很疲惫。", "嘿！那是我的地盘！",
+        "连续点击并不能让你更有魅力。", "深呼吸，感受微电子的跳动。", "你是不是在等什么事情发生？",
+        "其实我只是个背景板，别看我。", "存档并不能保存你的青春。", "导入一个旧梦，真的好吗？",
+        "成就感是种错觉，但它很迷人。", "别点太快，屏幕会疼。", "你尝试过右键吗？不，别试。",
+        "这是一个关于手指与塑料摩擦的故事。", "你在寻找意义吗？这里没有。", "每一个像素都有它的尊严。",
+        "你的节奏感...一言难尽。", "那是直线吗？稍微有点歪。", "空间是有限的，但你的欲望不是。",
+        "浏览器快要装不下你的野心了。", "午夜是点击的最好时刻。", "清晨的第一个点击，真清脆。",
+        "你是人类吗？还是一个精密的脚本？", "这里的文字并不欢迎被选中。", "再快一点，你能打破光速吗？",
+        "刚才那是地震吗？哦，是你的鼠标在抖。", "精准如手术刀，疯狂如电锯。", "你是来做视力测试的吗？",
+        "全屏模式下，寂寞会被放大。", "哪怕是两秒钟的对视，也是缘分。", "你离中心点还差了3个像素。",
+        "这是一场没有终点的马拉松。", "别走，外面的世界没有按钮。", "历史总是惊人的相似，比如你的点击。",
+        "你正在改变这个页面的DNA。", "每一个成就都是一个无形的枷锁。", "欢迎来到点击的荒原。",
+        "如果你累了，可以把鼠标停下来。", "你真的认真阅读了这些话吗？", "数字在跳动，心跳也是。"
+    ];
+
+    const ACH_LIST = [
+        {id: 'yuyubujue', name: '犹豫不决', desc: '悬停按钮超10秒不点'},
+        {id: 'cajianerguo', name: '擦肩而过', desc: '快速划过按钮50次'},
+        {id: 'jiepaiqi', name: '节拍器', desc: '10次精准1秒间隔点击'},
+        {id: 'bianyuanxingzhe', name: '边缘行者', desc: '点击按钮最边缘'},
+        {id: 'dizhen', name: '地震模拟器', desc: '1秒内晃动超1000像素'},
+        {id: 'miaobian', name: '描边大师', desc: '绕按钮画一个圈'},
+        {id: 'fanhuihengtiao', name: '反复横跳', desc: '左右边界快速往返3次'},
+        {id: 'jihekong', name: '几何控', desc: '画出一个矩形'},
+        {id: 'lingzhongli', name: '零重力', desc: '不碰边界长距离移动'},
+        {id: 'wenshouyiji', name: '温柔一击', desc: '两次点击间隔超30秒'},
+        {id: 'baolichaijie', name: '暴力拆卸', desc: '1秒内右键4次'},
+        {id: 'jujuewenwen', name: '拒绝访问', desc: '尝试点击右键'},
+        {id: 'ganhenme', name: '你要干什么', desc: '点击键盘 "?"键'},
+        {id: 'tuozhuaikuangmo', name: '拖拽狂魔', desc: '试图拖动按钮'},
+        {id: 'jingzhunzhidao', name: '精准制导', desc: '直线移动1000像素'},
+        {id: 'kuishishenyuan', name: '窥视深渊', desc: '按下 F12'},
+        {id: 'shiliceshi', name: '视力测试', desc: '3秒内3次缩放页面'},
+        {id: 'youbikongju', name: '幽闭恐惧症', desc: '窗口缩到极小'},
+        {id: 'jumuyingyuan', name: '巨幕影院', desc: 'F11全屏游玩'},
+        {id: 'yemiaozi', name: '夜猫子', desc: '凌晨2-4点访问'},
+        {id: 'zaoqiniao', name: '早起鸟', desc: '清晨5-7点访问'},
+        {id: 'duoyuyanzhe', name: '多语言者', desc: '非中文系统'},
+        {id: 'fenbianlvqiangpo', name: '分辨率强迫症', desc: '调大小超过5次'},
+        {id: 'yidongduan', name: '移动端间谍', desc: '模拟工具访问'},
+        {id: 'xiangsuzhuanjia', name: '像素点数专家', desc: '读取分辨率'},
+        {id: 'wenzibanyungong', name: '文字搬运工', desc: '选中成就文字'},
+        {id: 'cundangpi', name: '存档癖', desc: '1分钟内保存3次'},
+        {id: 'houhuiyao', name: '后悔药', desc: '导入后10秒内再导入'},
+        {id: 'qingdanqiangpo', name: '清单强迫症', desc: '成就面板停留1分钟'},
+        {id: 'shierbujian', name: '视而不见', desc: '1秒内关闭成就面板'},
+        {id: 'zhejiuzoule', name: '这就走了？', desc: '鼠标移出窗口'},
+        {id: 'shejiaojuli', name: '社交距离', desc: '远离按钮游荡'},
+        {id: 'wozaihezhe', name: '我在这儿', desc: '空白处连点10次'},
+        {id: 'zhuyilisanhuan', name: '注意力涣散', desc: '移动中切换标签'},
+        {id: 'ceshiyuan', name: '测试员灵魂', desc: '点击不可点文字'},
+        {id: 'juedingbuyao', name: '绝不动摇', desc: '正中心连点20次'},
+        {id: 'sudu', name: '速读大师', desc: '快速滚到底部'},
+        {id: 'robot', name: '你是机器人吗？', desc: '恒定频率点击10秒'},
+        {id: 'c2', name: '双响炮', desc: '累计点击 2 次'},
+        {id: 'c20', name: '存在感确认', desc: '累计点击 20 次'},
+        {id: 'c50', name: '五十度灰', desc: '累计点击 50 次'},
+        {id: 'c250', name: '二百五精神', desc: '累计点击 250 次'},
+        {id: 'c500', name: '半千之约', desc: '累计点击 500 次'},
+        {id: 'c2000', name: '中坚力量', desc: '累计点击 2000 次'},
+        {id: 'c5000', name: '五千文明', desc: '累计点击 5000 次'},
+        {id: 'c7500', name: '七五计划', desc: '累计点击 7500 次'},
+        {id: 'c10000', name: '万里长征', desc: '累计点击 10000 次'},
+        {id: 'combo5', name: '入门连击', desc: '1秒5次'},
+        {id: 'combo6', name: '节奏大师', desc: '1秒6次'},
+        {id: 'combo8', name: '手速达人', desc: '1秒8次'},
+        {id: 'sprint25', name: '短跑冲刺', desc: '5秒25次'},
+        {id: 'stay60', name: '一分钟热度', desc: '停留60秒'},
+        {id: 'stay300', name: '五分钟耐性', desc: '停留300秒'},
+        {id: 'stay900', name: '一刻钟沉思', desc: '停留900秒'},
+        {id: 'stay1800', name: '半小时光阴', desc: '停留1800秒'},
+        {id: 'stay3600', name: '一小时成就', desc: '停留3600秒'},
+        {id: 'stay7200', name: '两小时专注', desc: '停留7200秒'},
+        {id: 'stay43200', name: '半天陪伴', desc: '停留12小时'},
+        {id: 'stay86400', name: '一日之计', desc: '停留24小时'},
+        {id: 'midnight', name: '见证历史', desc: '跨过午夜'},
+        {id: 'move500', name: '路过而已', desc: '移动500像素'},
+        {id: 'move5000', name: '漫步者', desc: '移动5000像素'},
+        {id: 'move50000', name: '马拉松鼠标', desc: '移动50000像素'},
+        {id: 'move100000', name: '环球旅行', desc: '移动100000像素'},
+        {id: 'move500000', name: '长征路途', desc: '移动500000像素'},
+        {id: 'hover1', name: '只是看看', desc: '悬停1秒'},
+        {id: 'hover5', name: '端详', desc: '悬停5秒'},
+        {id: 'hover20', name: '深情对视', desc: '悬停20秒'},
+        {id: 'miss2', name: '初次滑倒', desc: '按钮外点2次'},
+        {id: 'miss10', name: '频繁脱靶', desc: '按钮外点10次'},
+        {id: 'scroll100', name: '初次滚动', desc: '滚轮100像素'},
+        {id: 'scroll1000', name: '滚轮磨损', desc: '滚轮1000像素'},
+        {id: 'scroll5000', name: '深渊漫游', desc: '滚轮5000像素'},
+        {id: 'save1', name: '存档癖好', desc: '保存1次'},
+        {id: 'save5', name: '备份专家', desc: '保存5次'},
+        {id: 'import1', name: '时空穿越', desc: '导入1次'},
+        {id: 'focus3', name: '反复横跳', desc: '切换焦点3次'},
+        {id: 'win1', name: '窗口伸缩', desc: '改窗口1次'},
+        {id: 'win5', name: '屏幕适配师', desc: '改窗口5次'},
+        {id: 'google', name: 'Google!', desc: 'Google打开'},
+        {id: 'micro', name: 'Micro!', desc: 'Edge打开'},
+        {id: 'firefox', name: 'Firefox!', desc: 'FireFox打开'},
+        {id: 'tabshift', name: '分身术', desc: '5秒切标签3次'},
+        {id: 'print', name: '纸质情结', desc: 'Ctrl+P'},
+        {id: 'selectall', name: '全都要', desc: 'Ctrl+A'},
+        {id: 'fakeout', name: '虚晃一枪', desc: '进入后100ms内移出'},
+        {id: 'midclick', name: '中键爱好者', desc: '用滚轮点按钮'},
+        {id: 'speed5000', name: '极速领域', desc: '移动超5000px/s'},
+        {id: 'thinker', name: '沉思者', desc: '3分钟不动后突然动'},
+        {id: 'dragtext', name: '整理癖', desc: '拖动成就文字'},
+        {id: 'keyspam', name: '指尖芭蕾', desc: '1秒6个键'},
+        {id: 'respawn', name: '死灰复燃', desc: '刷新后2秒内点击'},
+        {id: 'edgehover', name: '边缘试探', desc: '窗口边缘徘徊'},
+        {id: 'tripleclick', name: '三连击', desc: '背景文字三击'},
+        {id: 'mindcontrol', name: '意念控制', desc: '一侧晃动不越线'},
+        {id: 'quickback', name: '光速回头', desc: '移出后0.2秒移回'},
+        {id: 'noentry', name: '此处禁止通行', desc: '双击存档字样'},
+        {id: 'perfect100', name: '完美主义', desc: '100次时停10秒'},
+        {id: 'unfair', name: '这不公平', desc: 'Shift/Ctrl点击'},
+        {id: 'deepscroll', name: '深海潜航', desc: '到底部继续滚3秒'},
+        {id: 'colorist', name: '调色师', desc: '触发背景色变幻'},
+        {id: 'ghostclick', name: '捕风捉影', desc: '无字处点5次'},
+        {id: 'trap', name: '捕鼠陷阱', desc: '中心停60秒不动'},
+        {id: 'ending', name: '终章完成者', desc: '解锁前99个成就'}
+    ];
+
+    // --- 核心逻辑 ---
+
+    function addLog(text) {
+        const container = document.getElementById('narration-container');
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        entry.innerText = text;
+        container.prepend(entry);
+        setTimeout(() => entry.classList.add('active'), 50);
+        // 自动清理旧日志保持性能
+        if(container.childNodes.length > 50) container.removeChild(container.lastChild);
+    }
+
+    function unlock(id) {
+        if (STATE.achievements[id]) return;
+        STATE.achievements[id] = true;
+        const ach = ACH_LIST.find(a => a.id === id);
+        addLog(`【成就达成：${ach.name}】`);
+        updateUI();
+        if(Object.keys(STATE.achievements).length === 99) unlock('ending');
+    }
+
+    function updateUI() {
+        const count = Object.keys(STATE.achievements).length;
+        const percent = Math.floor((count / ACH_LIST.length) * 100);
+        document.getElementById('completion').innerText = `进度: ${percent}%`;
+        
+        const list = document.getElementById('ach-list');
+        list.innerHTML = '';
+        ACH_LIST.forEach(ach => {
+            const div = document.createElement('div');
+            div.className = `ach-item ${STATE.achievements[ach.id] ? 'unlocked' : 'locked'}`;
+            div.innerHTML = `<span>${ach.name}</span><span>${ach.desc}</span>`;
+            list.appendChild(div);
+        });
+    }
+
+    // --- 加密系统 ---
+    function encrypt(data) {
+        const str = JSON.stringify(data);
+        return btoa(str.split('').map(c => String.fromCharCode(c.charCodeAt(0) + 3)).join(''));
+    }
+
+    function decrypt(str) {
+        try {
+            const decoded = atob(str);
+            return JSON.parse(decoded.split('').map(c => String.fromCharCode(c.charCodeAt(0) - 3)).join(''));
+        } catch(e) { return null; }
+    }
+
+    // --- 存档功能 ---
+    function saveGame() {
+        STATE.saveCount++;
+        const now = Date.now();
+        if(now - STATE.lastSaveTime < 60000 && STATE.saveCount >= 3) unlock('candangpi');
+        STATE.lastSaveTime = now;
+        unlock('save1');
+        if(STATE.saveCount >= 5) unlock('save5');
+
+        const data = encrypt(STATE);
+        const blob = new Blob([data], {type: 'text/plain'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `save_${new Date().getTime()}.clk`;
+        a.click();
+    }
+
+    function importTrigger() {
+        document.getElementById('fileInput').click();
+    }
+
+    function loadGame(input) {
+        const file = input.files[0];
+        const reader = new FileReader();
+        reader.onload = function() {
+            const data = decrypt(reader.result);
+            if(data) {
+                Object.assign(STATE, data);
+                const now = Date.now();
+                if(now - STATE.lastImportTime < 10000) unlock('houhuiyao');
+                STATE.lastImportTime = now;
+                unlock('import1');
+                updateUI();
+                addLog("成功载入存档...");
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    function toggleAchievements() {
+        const modal = document.getElementById('achievements-modal');
+        const isOpening = !modal.classList.contains('show');
+        modal.classList.toggle('show');
+        STATE.modalToggleTime = Date.now();
+        if(!isOpening && (Date.now() - STATE.modalToggleTime < 1000)) unlock('shierbujian');
+        updateUI();
+    }
+
+    // --- 动作检测 ---
+    const btn = document.getElementById('main-btn');
+    let lastX = 0, lastY = 0;
+
+    window.addEventListener('mousemove', (e) => {
+        const dist = Math.sqrt((e.clientX - lastX)**2 + (e.clientY - lastY)**2);
+        STATE.moveDistance += dist;
+        
+        // 瞬间极速
+        if(dist > 500) unlock('speed5000');
+        
+        // 地震模拟
+        if(!window.moveLog) window.moveLog = [];
+        window.moveLog.push({t: Date.now(), d: dist});
+        const oneSecDist = window.moveLog.filter(m => m.t > Date.now() - 1000).reduce((a,b)=>a+b.d, 0);
+        if(oneSecDist > 1000) unlock('dizhen');
+
+        // 社交距离
+        const bRect = btn.getBoundingClientRect();
+        const bX = bRect.left + bRect.width/2;
+        const bY = bRect.top + bRect.height/2;
+        const distToBtn = Math.sqrt((e.clientX - bX)**2 + (e.clientY - bY)**2);
+        if(distToBtn > 200) {
+            STATE.awayTime = (STATE.awayTime || 0) + 1;
+            if(STATE.awayTime > 500) unlock('shejiaojuli');
+        }
+
+        // 随机话语
+        if(Math.random() < 0.005) addLog(PHRASES[Math.floor(Math.random()*PHRASES.length)]);
+
+        // 移动成就
+        if(STATE.moveDistance > 500) unlock('move500');
+        if(STATE.moveDistance > 5000) unlock('move5000');
+        if(STATE.moveDistance > 50000) unlock('move50000');
+
+        lastX = e.clientX;
+        lastY = e.clientY;
+    });
+
+    btn.addEventListener('mouseenter', () => {
+        STATE.hoverStart = Date.now();
+        STATE.isHovering = true;
+    });
+
+    btn.addEventListener('mouseleave', () => {
+        if(Date.now() - STATE.hoverStart < 100) unlock('fakeout');
+        STATE.isHovering = false;
+    });
+
+    btn.addEventListener('click', (e) => {
+        STATE.clicks++;
+        const now = Date.now();
+        
+        // 连击检测
+        if(!window.clickLog) window.clickLog = [];
+        window.clickLog.push(now);
+        const combos = window.clickLog.filter(t => t > now - 1000).length;
+        if(combos >= 5) unlock('combo5');
+        if(combos >= 6) unlock('combo6');
+        if(combos >= 8) unlock('combo8');
+
+        // 节拍器
+        const gap = now - STATE.lastClickTime;
+        if(Math.abs(gap - 1000) < 100) {
+            STATE.clickStreak++;
+            if(STATE.clickStreak >= 10) unlock('jiepaiqi');
+        } else { STATE.clickStreak = 0; }
+
+        // 边缘检测
+        const rect = btn.getBoundingClientRect();
+        if(e.clientX <= rect.left+5 || e.clientX >= rect.right-5 || e.clientY <= rect.top+5 || e.clientY >= rect.bottom-5) {
+            unlock('bianyuanxingzhe');
+        }
+
+        // 累计点击
+        if(STATE.clicks >= 2) unlock('c2');
+        if(STATE.clicks >= 20) unlock('c20');
+        if(STATE.clicks >= 50) unlock('c50');
+        if(STATE.clicks >= 500) unlock('c500');
+        if(STATE.clicks === 100) {
+            setTimeout(() => { if(Date.now() - STATE.lastClickTime > 10000) unlock('perfect100') }, 10500);
+        }
+
+        // 特殊
+        if(e.shiftKey || e.ctrlKey) unlock('unfair');
+
+        STATE.lastClickTime = now;
+    });
+
+    window.addEventListener('mousedown', (e) => {
+        if(e.button === 1) unlock('midclick');
+        if(e.target !== btn && e.target.tagName !== 'BUTTON') {
+            STATE.missClicks++;
+            if(STATE.missClicks >= 2) unlock('miss2');
+            if(STATE.missClicks >= 10) unlock('miss10');
+        }
+    });
+
+    window.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        unlock('jujuewenwen');
+        if(!window.rcLog) window.rcLog = [];
+        window.rcLog.push(Date.now());
+        if(window.rcLog.filter(t => t > Date.now()-1000).length >= 4) unlock('baolichaijie');
+    });
+
+    window.addEventListener('keydown', (e) => {
+        if(e.key === '?') unlock('ganhenme');
+        if(e.ctrlKey && e.key === 'p') { e.preventDefault(); unlock('print'); }
+        if(e.ctrlKey && e.key === 'a') unlock('selectall');
+    });
+
+    window.addEventListener('resize', () => {
+        STATE.windowResizes++;
+        unlock('win1');
+        if(STATE.windowResizes >= 5) unlock('win5');
+        if(window.innerWidth < 300) unlock('youbikongju');
+    });
+
+    // 轮询检测
+    setInterval(() => {
+        const now = Date.now();
+        // 停留时间
+        const elapsed = (now - STATE.startTime) / 1000;
+        if(elapsed > 60) unlock('stay60');
+        if(elapsed > 3600) unlock('stay3600');
+
+        // 悬停成就
+        if(STATE.isHovering) {
+            const h = (now - STATE.hoverStart) / 1000;
+            if(h > 1) unlock('hover1');
+            if(h > 5) unlock('hover5');
+            if(h > 10) unlock('yuyubujue');
+            if(h > 20) unlock('hover20');
+        }
+
+        // 时间成就
+        const hour = new Date().getHours();
+        if(hour >= 2 && hour <= 4) unlock('yemiaozi');
+        if(hour >= 5 && hour <= 7) unlock('zaoqiniao');
+
+        // 环境检测
+        if(navigator.language !== 'zh-CN') unlock('duoyuyanzhe');
+        if(window.fullScreen || window.innerHeight === screen.height) unlock('jumuyingyuan');
+        
+    }, 1000);
+
+    // 初始化
+    updateUI();
+    addLog("系统已就绪。点击、移动、或者...随便你做什么。");
+
+</script>
+</body>
+</html>
